@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model, authenticate
 from django.db import transaction
 from rest_framework.authtoken.models import Token
 from .models import History
+from payments.models import Wallet
 from zipfile import ZipFile
 from io import BytesIO
 import xml.etree.ElementTree as ET
@@ -30,6 +31,11 @@ class EssayAnalysisView(APIView):
 
     def post(self, request, *args, **kwargs):
         essay_text = request.data.get('essay', '')
+
+        # Require at least 1 credit
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
+        if wallet.balance <= 0:
+            return Response({"error": "Insufficient credits. Please purchase credits to analyze.", "code": "INSUFFICIENT_CREDITS"}, status=402)
 
         # print(f"reuest header: f{request.data}")
 
@@ -76,6 +82,10 @@ class EssayAnalysisView(APIView):
                 ai_probability=float(analysis_result.get("ai_probability", 0.0)),
                 reasoning=str(analysis_result.get("reasoning", "")),
             )
+            
+            # Consume 1 credit on successful analysis
+            wallet.balance = max(0, wallet.balance - 1)
+            wallet.save(update_fields=['balance'])
 
             return Response({"success": True, "results": analysis_result}, status=status.HTTP_200_OK)
 
